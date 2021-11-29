@@ -16,7 +16,7 @@ mkdir -p ./build/packages
 make app
 
 os_all='linux windows darwin'
-arch_all='amd64 arm arm64'
+arch_all='386 amd64 arm arm64'
 
 cd ./build
 

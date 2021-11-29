@@ -1,7 +1,7 @@
 export GO111MODULE=on
 LDFLAGS := -s -w
 
-os-archs=darwin:amd64 darwin:arm64 linux:amd64 linux:arm linux:arm64 windows:amd64
+os-archs=darwin:amd64 darwin:arm64 linux:386 linux:amd64 linux:arm linux:arm64 windows:386 windows:amd64
 
 all: fmt build
 

@@ -1,0 +1,3 @@
+[submodule "frp"]
+	path = frp
+	url = git@github.com:fatedier/frp.git

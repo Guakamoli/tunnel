@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 make
 if [ $? -ne 0 ]; then
     echo "make error"
@@ -42,7 +44,7 @@ for os in $os_all; do
         if [ "x${os}" = x"windows" ]; then
             zip -rq ${tunnel_dir_name}.zip ${tunnel_dir_name}
         else
-            tar -zcf ${tunnel_dir_name}.tar.gz ${tunnel_dir_name}
+            tar -zcvf ${tunnel_dir_name}.tar.gz ${tunnel_dir_name}
         fi
         cd ..
         rm -rf ${tunnel_path}

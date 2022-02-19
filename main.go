@@ -60,11 +60,11 @@ var (
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
-	
-	// 1. 优先检查版本号
-	checkVersion()
-	// 2. 解析命令参数
+
+	// 1. 解析命令参数
 	parseFlags()
+	// 2. 检查版本号
+	checkVersion()
 	// 3. 拉取服务器参数
 	fetchConfig()
 }
@@ -109,7 +109,7 @@ func parseFlags() {
 	}
 
 	if config.Version {
-		fmt.Println()
+		fmt.Println(Version)
 		os.Exit(0)
 	}
 }

@@ -8,7 +8,7 @@ all: fmt build
 fmt:
 	go fmt ./...
 
-build: tunnel
+build: clean tunnel
 
 tunnel:
 	env CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o ./bin/tunnel .
@@ -26,4 +26,5 @@ app:
 		env CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} GOMIPS=$${gomips} go build -trimpath -ldflags "$(LDFLAGS)" -o ./build/tunnel_$${target_suffix} .;\
 		echo "Build $${os}-$${arch} done";\
 	)
+	@mv ./build/tunnel_windows_386 ./build/tunnel_windows_386.exe
 	@mv ./build/tunnel_windows_amd64 ./build/tunnel_windows_amd64.exe

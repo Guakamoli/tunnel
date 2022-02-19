@@ -1,10 +1,12 @@
 package main
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/flxxyz/tunnel/cmd"
-	"github.com/jessevdk/go-flags"
 	"math/rand"
 	"net/http"
 	"os"
@@ -12,13 +14,14 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/fatedier/frp/assets/frpc"
 	"github.com/fatedier/golib/crypto"
+	"github.com/flxxyz/tunnel/cmd"
+	flags "github.com/jessevdk/go-flags"
 	"github.com/ouqiang/goutil/httpclient"
 )
 
 const (
-	Version        = "0.0.1"
+	Version        = "0.1.0"
 	ConfigTemplate = `[common]
 server_addr = %server_addr%
 server_port = %server_port%
@@ -34,18 +37,20 @@ local_port = %local_port%
 use_encryption = false
 use_compression = true
 subdomain = %name%`
-	ConfigUrl = "https://guaka-tunnel.oss-ap-southeast-1.aliyuncs.com/%s.json"
+	ConfigUrl = "https://tunnel.deno.dev/%s.json"
+	CheckUrl  = "https://tunnel.deno.dev/check-version"
+	IV        = "32WkX~>+KLEso@t,a[^Rw0~Phi*)z]3;"
 )
 
 type UserConfig struct {
-	ServerAddr string `json:"server_addr"`
-	ServerPort int    `json:"server_port"`
-	Token      string `json:"token"`
-	serverName string
-	LocalAddr  string `short:"H" long:"host" default:"127.0.0.1" description:"代理的地址"`
-	LocalPort  int    `short:"p" long:"port" default:"8080" description:"代理的端口"`
-	Debug      bool   `short:"d" long:"debug" description:"打开调试模式"`
-	Version    bool   `short:"v" long:"version" description:"显示版本号"`
+	ServerAddr    string `json:"server_addr"`
+	ServerPort    int    `json:"server_port"`
+	Token         string `json:"token"`
+	SubdomainHost string `json:"subdomain_host"`
+	LocalAddr     string `short:"H" long:"host" default:"127.0.0.1" description:"代理的地址"`
+	LocalPort     int    `short:"p" long:"port" default:"8080" description:"代理的端口"`
+	Debug         bool   `short:"d" long:"debug" description:"打开调试模式"`
+	Version       bool   `short:"v" long:"version" description:"显示版本号"`
 }
 
 var (
@@ -54,17 +59,43 @@ var (
 )
 
 func init() {
+	rand.Seed(time.Now().UnixNano())
+	
+	// 1. 优先检查版本号
+	checkVersion()
+	// 2. 解析命令参数
 	parseFlags()
+	// 3. 拉取服务器参数
 	fetchConfig()
 }
 
 func main() {
 	crypto.DefaultSalt = "frp"
-	rand.Seed(time.Now().UnixNano())
+	name := randomString(6)
+	content := replaceValues(name, config)
+	fmt.Println(fmt.Sprintf("open tunnel address: https://%s.%s", name, config.SubdomainHost))
+	cmd.Execute([]byte(content))
+}
 
-	serverName, content := replaceValues(config)
-	fmt.Println(fmt.Sprintf("open tunnel address: https://%s", strings.Replace(config.ServerAddr, "tunnel", serverName, 1)))
-	cmd.Execute(content)
+func checkVersion() {
+	headers := http.Header{}
+	headers.Add("x-version", Version)
+	response, _ := httpclient.Get(CheckUrl, nil, headers)
+	content, err := response.Bytes()
+	if err != nil {
+		fmt.Printf("内部错误 error: %s", err.Error())
+		os.Exit(1)
+	}
+
+	var version struct {
+		Current string `json:"current"`
+	}
+	_ = json.Unmarshal(content, &version)
+
+	if version.Current != Version {
+		fmt.Printf("【发现新版本🆕 v%s 】\n", version.Current)
+		fmt.Println("-------------------- 分割线 --------------------")
+	}
 }
 
 func parseFlags() {
@@ -78,12 +109,12 @@ func parseFlags() {
 	}
 
 	if config.Version {
-		fmt.Println(Version)
+		fmt.Println()
 		os.Exit(0)
 	}
 }
 
-func readUsername() string {
+func readIdentity() string {
 	homeDir, _ := os.UserHomeDir()
 	configPath := homeDir + "/.tunnel"
 
@@ -93,18 +124,18 @@ func readUsername() string {
 		os.Exit(1)
 	}
 
-	username, err := os.ReadFile(configPath)
+	identity, err := os.ReadFile(configPath)
 	if err != nil {
 		fmt.Printf("读取用户失败 error: %s", err.Error())
 		os.Exit(1)
 	}
 
-	return strings.Trim(string(username), "\n")
+	return strings.Trim(string(identity), "\n")
 }
 
 func fetchConfig() {
-	username := readUsername()
-	URL := fmt.Sprintf(ConfigUrl, username)
+	identity := readIdentity()
+	URL := fmt.Sprintf(ConfigUrl, identity)
 
 	headers := http.Header{}
 	headers.Add("x-version", Version)
@@ -115,19 +146,39 @@ func fetchConfig() {
 		os.Exit(1)
 	}
 
-	if err := json.Unmarshal(content, config); err != nil {
+	var cipher struct {
+		Encrypt string
+	}
+
+	if err := json.Unmarshal(content, &cipher); err != nil {
 		fmt.Printf("获取配置失败 error: %s", err.Error())
+		os.Exit(1)
+	}
+
+	// 解密AES数据，填充至 config
+	if err := json.Unmarshal(decodeAES([]byte(identity), []byte(cipher.Encrypt)), &config); err != nil {
+		fmt.Printf("解密数据失败 error: %s", err.Error())
 		os.Exit(1)
 	}
 }
 
-func replaceValues(config *UserConfig) (string, []byte) {
+func decodeAES(identity, encrypt []byte) []byte {
+	s := fmt.Sprintf("%x", sha512.Sum512(identity))
+	key := []byte(s[:32])
+	iv := gen16bytes(IV)
+	block, _ := aes.NewCipher(key)
+	mode := cipher.NewCBCDecrypter(block, iv)
+	encryptBytes, _ := base64.StdEncoding.DecodeString(string(encrypt))
+	mode.CryptBlocks(encryptBytes, encryptBytes)
+	return encryptBytes
+}
+
+func replaceValues(name string, config *UserConfig) string {
 	template := strings.Replace(ConfigTemplate, "%server_addr%", config.ServerAddr, 1)
 	template = strings.Replace(template, "%server_port%", strconv.Itoa(config.ServerPort), 1)
 	template = strings.Replace(template, "%token%", config.Token, 1)
 
-	serverName := randomString(6)
-	template = strings.Replace(template, "%name%", serverName, -1)
+	template = strings.Replace(template, "%name%", name, -1)
 	template = strings.Replace(template, "%local_ip%", config.LocalAddr, 1)
 	template = strings.Replace(template, "%local_port%", strconv.Itoa(config.LocalPort), 1)
 
@@ -137,7 +188,7 @@ func replaceValues(config *UserConfig) (string, []byte) {
 	}
 	template = strings.Replace(template, "%log_level%", logLevel, 1)
 
-	return serverName, []byte(template)
+	return template
 }
 
 func randomString(n int, allowedChars ...[]rune) string {
@@ -155,4 +206,34 @@ func randomString(n int, allowedChars ...[]rune) string {
 	}
 
 	return string(b)
+}
+
+func genBytes(bytes int, identity []byte) []byte {
+	b := make([]byte, bytes)
+
+	for i := 0; i < bytes; i++ {
+		if i >= len(identity) {
+			b[i] = byte(rand.Intn(254) + 1)
+		} else {
+			b[i] = identity[i]
+		}
+	}
+
+	return b
+}
+
+func gen16bytes(identity string) []byte {
+	return genBytes(16, []byte(identity))
+}
+
+func gen24bytes(identity string) []byte {
+	return genBytes(24, []byte(identity))
+}
+
+func gen32bytes(identity string) []byte {
+	return genBytes(32, []byte(identity))
+}
+
+func randomBytes(bytes int) []byte {
+	return genBytes(bytes, nil)
 }

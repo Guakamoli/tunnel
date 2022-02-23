@@ -147,7 +147,8 @@ func fetchConfig() {
 	}
 
 	var cipher struct {
-		Encrypt string
+		Encrypt string `json:"encrypt"`
+		IV      string `json:"iv"`
 	}
 
 	if err := json.Unmarshal(content, &cipher); err != nil {
@@ -156,21 +157,29 @@ func fetchConfig() {
 	}
 
 	// 解密AES数据，填充至 config
-	if err := json.Unmarshal(decodeAES([]byte(identity), []byte(cipher.Encrypt)), &config); err != nil {
+	parseAESData := decodeAES(identity, cipher.Encrypt, cipher.IV)
+	if err := json.Unmarshal(parseAESData, &config); err != nil {
 		fmt.Printf("解密数据失败 error: %s", err.Error())
 		os.Exit(1)
 	}
 }
 
-func decodeAES(identity, encrypt []byte) []byte {
-	s := fmt.Sprintf("%x", sha512.Sum512(identity))
-	key := []byte(s[:32])
-	iv := gen16bytes(IV)
-	block, _ := aes.NewCipher(key)
-	mode := cipher.NewCBCDecrypter(block, iv)
-	encryptBytes, _ := base64.StdEncoding.DecodeString(string(encrypt))
+func decodeAES(key, encrypt, iv string) []byte {
+	s := fmt.Sprintf("%x", sha512.Sum512([]byte(key)))
+	cipherKey := []byte(s[:32])
+	cipherIV, _ := base64.StdEncoding.DecodeString(iv)
+
+	block, _ := aes.NewCipher(cipherKey)
+	mode := cipher.NewCBCDecrypter(block, cipherIV)
+	encryptBytes, _ := base64.StdEncoding.DecodeString(encrypt)
 	mode.CryptBlocks(encryptBytes, encryptBytes)
-	return encryptBytes
+	return PKCS7UNPadding(encryptBytes)
+}
+
+func PKCS7UNPadding(originBytes []byte) []byte {
+	originLength := len(originBytes)
+	unpadding := int(originBytes[originLength-1])
+	return originBytes[:(originLength-unpadding)]
 }
 
 func replaceValues(name string, config *UserConfig) string {

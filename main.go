@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	Version        = "0.1.0"
+	Version        = "0.1.1"
 	ConfigTemplate = `[common]
 server_addr = %server_addr%
 server_port = %server_port%
@@ -179,7 +179,7 @@ func decodeAES(key, encrypt, iv string) []byte {
 func PKCS7UNPadding(originBytes []byte) []byte {
 	originLength := len(originBytes)
 	unpadding := int(originBytes[originLength-1])
-	return originBytes[:(originLength-unpadding)]
+	return originBytes[:(originLength - unpadding)]
 }
 
 func replaceValues(name string, config *UserConfig) string {

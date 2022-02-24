@@ -39,7 +39,6 @@ use_compression = true
 subdomain = %name%`
 	ConfigUrl = "https://tunnel.deno.dev/%s.json"
 	CheckUrl  = "https://tunnel.deno.dev/check-version"
-	IV        = "32WkX~>+KLEso@t,a[^Rw0~Phi*)z]3;"
 )
 
 type UserConfig struct {

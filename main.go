@@ -177,6 +177,9 @@ func decodeAES(key, encrypt, iv string) []byte {
 
 func PKCS7UNPadding(originBytes []byte) []byte {
 	originLength := len(originBytes)
+	if originLength == 0 {
+		return originBytes
+	}
 	unpadding := int(originBytes[originLength-1])
 	return originBytes[:(originLength - unpadding)]
 }

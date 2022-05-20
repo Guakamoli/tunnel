@@ -37,8 +37,9 @@ local_port = %local_port%
 use_encryption = false
 use_compression = true
 subdomain = %name%`
-	ConfigUrl = "https://tunnel.deno.dev/%s.json"
-	CheckUrl  = "https://tunnel.deno.dev/check-version"
+	ConfigUrl   = "https://tunnel.deno.dev/%s.json"
+	CheckUrl    = "https://tunnel.deno.dev/check-version"
+	HttpTimeout = time.Second * 60
 )
 
 type UserConfig struct {
@@ -55,6 +56,7 @@ type UserConfig struct {
 var (
 	defaultLetters = []rune("abcdefghijklmnopqrstuvwxyz0123456789")
 	config         = &UserConfig{}
+	headers        = http.Header{}
 )
 
 func init() {
@@ -76,10 +78,22 @@ func main() {
 	cmd.Execute([]byte(content))
 }
 
+func httpGet(url string) *httpclient.Response {
+	headers.Add("x-version", Version)
+	httpOption := httpclient.WithConnectTimeout(HttpTimeout)
+	req := httpclient.NewRequest(httpOption)
+	response, err := req.Get(url, nil, headers)
+	if err != nil {
+		fmt.Printf("请求错误 error: %s", err.Error())
+		os.Exit(1)
+	}
+	return response
+}
+
 func checkVersion() {
 	headers := http.Header{}
 	headers.Add("x-version", Version)
-	response, _ := httpclient.Get(CheckUrl, nil, headers)
+	response := httpGet(CheckUrl)
 	content, err := response.Bytes()
 	if err != nil {
 		fmt.Printf("内部错误 error: %s", err.Error())
@@ -136,9 +150,7 @@ func fetchConfig() {
 	identity := readIdentity()
 	URL := fmt.Sprintf(ConfigUrl, identity)
 
-	headers := http.Header{}
-	headers.Add("x-version", Version)
-	response, _ := httpclient.Get(URL, nil, headers)
+	response := httpGet(URL)
 	content, err := response.Bytes()
 	if err != nil {
 		fmt.Printf("获取配置失败 error: %s", err.Error())
